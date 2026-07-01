@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMC Electric — Admin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: { DEFAULT: '#0f172a', deep: '#1e3a8a' },
+            gold: { DEFAULT: '#f59e0b', dark: '#d97706' },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; }
+    .slot-admin { transition: all 0.15s; cursor: pointer; }
+    .slot-admin.blocked { background: #fecaca; border-color: #f87171; }
+    .slot-admin.open { background: #dcfce7; border-color: #4ade80; }
+  </style>
+</head>
+<body class="bg-slate-50 text-navy min-h-screen">
+
+  <!-- Login -->
+  <div id="login-screen" class="min-h-screen flex items-center justify-center px-4">
+    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm border border-gray-200">
+      <h1 class="text-xl font-bold mb-1">IMC Electric Admin</h1>
+      <p class="text-sm text-slate-500 mb-6">Manage booking availability &amp; schedule load</p>
+      <label class="block text-sm font-semibold mb-1">Admin PIN</label>
+      <input id="pin-input" type="password" placeholder="Enter PIN" class="w-full px-4 py-3 rounded-xl border border-gray-200 mb-4 text-sm" />
+      <button id="pin-submit" class="w-full bg-navy text-white font-semibold py-3 rounded-xl hover:bg-navy-deep">Sign In</button>
+      <p id="pin-error" class="text-red-600 text-xs mt-3 hidden">Incorrect PIN. Default: imc2026</p>
+      <a href="index.html" class="block text-center text-xs text-slate-400 mt-4 hover:text-gold">← Back to website</a>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="hidden">
+    <header class="bg-navy text-white py-4 px-6 flex justify-between items-center">
+      <div>
+        <p class="font-bold">IMC Electric — Admin</p>
+        <p class="text-xs text-blue-200/70">Booking &amp; availability management</p>
+      </div>
+      <div class="flex gap-3 items-center">
+        <a href="index.html" target="_blank" class="text-sm text-gold hover:underline">View site ↗</a>
+        <button id="logout-btn" class="text-sm bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20">Logout</button>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+      <!-- Busy level -->
+      <section class="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+        <h2 class="font-bold text-lg mb-1">Schedule Load (How Busy We Are)</h2>
+        <p class="text-sm text-slate-500 mb-4">This meter appears on the public booking page. Adjust to reflect current demand.</p>
+        <div class="flex items-center gap-4">
+          <input id="busy-slider" type="range" min="0" max="100" value="45" class="flex-1 accent-amber-500" />
+          <span id="busy-value" class="font-bold text-lg w-16 text-right">45%</span>
+        </div>
+        <p id="busy-preview" class="text-sm mt-3 text-amber-600 font-semibold"></p>
+      </section>
+
+      <!-- Electricians -->
+      <section class="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+        <h2 class="font-bold text-lg mb-1">Electricians On Duty</h2>
+        <p class="text-sm text-slate-500 mb-4">One name per line — shown in the customer rating dropdown.</p>
+        <textarea id="electricians-list" rows="4" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-mono"></textarea>
+      </section>
+
+      <!-- Slot manager -->
+      <section class="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+        <h2 class="font-bold text-lg mb-1">Block / Open Time Slots</h2>
+        <p class="text-sm text-slate-500 mb-4">Click a slot to toggle. <span class="text-green-600 font-semibold">Green = open</span>, <span class="text-red-600 font-semibold">Red = blocked</span>.</p>
+        <div id="admin-calendar" class="space-y-4"></div>
+      </section>
+
+      <!-- Actions -->
+      <section class="flex flex-wrap gap-4">
+        <button id="save-btn" class="bg-gold hover:bg-gold-dark text-navy font-bold px-8 py-3 rounded-xl">Save Changes</button>
+        <button id="reset-btn" class="border-2 border-gray-300 font-semibold px-6 py-3 rounded-xl hover:bg-gray-50">Reset to Defaults</button>
+        <button id="export-btn" class="border-2 border-navy/20 font-semibold px-6 py-3 rounded-xl hover:bg-navy/5">Export JSON</button>
+        <label class="border-2 border-navy/20 font-semibold px-6 py-3 rounded-xl hover:bg-navy/5 cursor-pointer">
+          Import JSON
+          <input id="import-file" type="file" accept=".json" class="hidden" />
+        </label>
+      </section>
+      <p id="save-status" class="text-sm text-green-600 font-semibold hidden">✓ Saved — changes are live on the booking page.</p>
+      <p class="text-xs text-slate-400">Data is stored in browser localStorage. For production, connect to a backend (Firebase, Supabase, etc.) so admin and public site share one database.</p>
+    </main>
+  </div>
+
+  <script src="js/availability.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    var ADMIN_PIN = 'imc2026';
+    var SESSION_KEY = 'imc_admin_session';
+
+    var loginScreen = document.getElementById('login-screen');
+    var dashboard = document.getElementById('dashboard');
+    var pinInput = document.getElementById('pin-input');
+    var pinSubmit = document.getElementById('pin-submit');
+    var pinError = document.getElementById('pin-error');
+    var busySlider = document.getElementById('busy-slider');
+    var busyValue = document.getElementById('busy-value');
+    var busyPreview = document.getElementById('busy-preview');
+    var electriciansList = document.getElementById('electricians-list');
+    var adminCalendar = document.getElementById('admin-calendar');
+    var saveBtn = document.getElementById('save-btn');
+    var resetBtn = document.getElementById('reset-btn');
+    var exportBtn = document.getElementById('export-btn');
+    var importFile = document.getElementById('import-file');
+    var saveStatus = document.getElementById('save-status');
+
+    var workingData = IMCAvailability.load();
+
+    function showDashboard() {
+      sessionStorage.setItem(SESSION_KEY, '1');
+      loginScreen.classList.add('hidden');
+      dashboard.classList.remove('hidden');
+      loadUI();
+    }
+
+    function logout() {
+      sessionStorage.removeItem(SESSION_KEY);
+      dashboard.classList.add('hidden');
+      loginScreen.classList.remove('hidden');
+      pinInput.value = '';
+    }
+
+    if (sessionStorage.getItem(SESSION_KEY)) showDashboard();
+
+    pinSubmit.addEventListener('click', function () {
+      if (pinInput.value === ADMIN_PIN) {
+        pinError.classList.add('hidden');
+        showDashboard();
+      } else {
+        pinError.classList.remove('hidden');
+      }
+    });
+    pinInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') pinSubmit.click();
+    });
+    document.getElementById('logout-btn').addEventListener('click', logout);
+
+    function updateBusyPreview(val) {
+      busyValue.textContent = val + '%';
+      var label = IMCAvailability.getBusyLabel(parseInt(val, 10));
+      busyPreview.textContent = label.text + ' — ' + label.desc;
+      busyPreview.className = 'text-sm mt-3 font-semibold ' +
+        (label.color === 'green' ? 'text-green-600' : label.color === 'amber' ? 'text-amber-600' : 'text-red-600');
+    }
+
+    busySlider.addEventListener('input', function () {
+      updateBusyPreview(busySlider.value);
+    });
+
+    function renderAdminCalendar() {
+      adminCalendar.innerHTML = '';
+      var days = IMCAvailability.nextBusinessDays(10);
+      var slots = IMCAvailability.generateTimeSlots();
+      days.forEach(function (day) {
+        var dateStr = IMCAvailability.formatDateISO(day);
+        var block = document.createElement('div');
+        block.className = 'border border-gray-200 rounded-xl p-4';
+        block.innerHTML = '<p class="font-semibold text-sm mb-3">' + IMCAvailability.formatDateDisplay(day) + '</p>';
+        var grid = document.createElement('div');
+        grid.className = 'flex flex-wrap gap-2';
+        slots.forEach(function (time) {
+          var key = IMCAvailability.slotKey(dateStr, time);
+          var blocked = !!workingData.blockedSlots[key];
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = time;
+          btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border ' + (blocked ? 'blocked' : 'open');
+          btn.addEventListener('click', function () {
+            if (workingData.blockedSlots[key]) {
+              delete workingData.blockedSlots[key];
+              btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border open';
+            } else {
+              workingData.blockedSlots[key] = true;
+              btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border blocked';
+            }
+          });
+          grid.appendChild(btn);
+        });
+        block.appendChild(grid);
+        adminCalendar.appendChild(block);
+      });
+    }
+
+    function loadUI() {
+      workingData = IMCAvailability.load();
+      busySlider.value = workingData.busyLevel;
+      updateBusyPreview(workingData.busyLevel);
+      electriciansList.value = workingData.electriciansOnDuty.join('\n');
+      renderAdminCalendar();
+    }
+
+    saveBtn.addEventListener('click', function () {
+      workingData.busyLevel = parseInt(busySlider.value, 10);
+      workingData.electriciansOnDuty = electriciansList.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      IMCAvailability.save(workingData);
+      saveStatus.classList.remove('hidden');
+      setTimeout(function () { saveStatus.classList.add('hidden'); }, 3000);
+    });
+
+    resetBtn.addEventListener('click', function () {
+      if (confirm('Reset all availability to defaults?')) {
+        workingData = JSON.parse(JSON.stringify(IMCAvailability.DEFAULT));
+        IMCAvailability.save(workingData);
+        loadUI();
+      }
+    });
+
+    exportBtn.addEventListener('click', function () {
+      var blob = new Blob([JSON.stringify(workingData, null, 2)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'imc-availability.json';
+      a.click();
+    });
+
+    importFile.addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        try {
+          workingData = JSON.parse(ev.target.result);
+          loadUI();
+        } catch (err) {
+          alert('Invalid JSON file.');
+        }
+      };
+      reader.readAsText(file);
+    });
+
+  })();
+  </script>
+</body>
+</html>
