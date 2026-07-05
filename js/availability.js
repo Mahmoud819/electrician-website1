@@ -61,7 +61,63 @@
   }
 
   function formatDateISO(d) {
-    return d.toISOString().slice(0, 10);
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function parseDateISO(str) {
+    var p = str.split('-');
+    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+  }
+
+  function isWeekend(d) {
+    var dow = d.getDay();
+    return dow === 0 || dow === 6;
+  }
+
+  function isPastDay(d) {
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var cmp = new Date(d);
+    cmp.setHours(0, 0, 0, 0);
+    return cmp < today;
+  }
+
+  /** All Mon–Fri dates in a calendar month (month is 0-indexed). */
+  function getBusinessDaysInMonth(year, month) {
+    var days = [];
+    var d = new Date(year, month, 1);
+    while (d.getMonth() === month) {
+      if (!isWeekend(d)) days.push(new Date(d));
+      d.setDate(d.getDate() + 1);
+    }
+    return days;
+  }
+
+  function getMonthLabel(year, month) {
+    return new Date(year, month, 1).toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
+  }
+
+  /** Count open vs blocked slots for one day. */
+  function dayAvailability(data, dateStr) {
+    var slots = generateTimeSlots();
+    var open = 0;
+    var blocked = 0;
+    slots.forEach(function (time) {
+      if (isBlocked(data, dateStr, time)) blocked++;
+      else open++;
+    });
+    return { open: open, blocked: blocked, total: slots.length };
+  }
+
+  function canNavigateMonth(year, month, direction) {
+    var now = new Date();
+    var target = new Date(year, month + direction, 1);
+    var min = new Date(now.getFullYear(), now.getMonth(), 1);
+    var max = new Date(now.getFullYear(), now.getMonth() + 3, 1);
+    return target >= min && target <= max;
   }
 
   function formatDateDisplay(d) {
@@ -95,5 +151,12 @@
     formatDateISO: formatDateISO,
     formatDateDisplay: formatDateDisplay,
     countAvailableSlots: countAvailableSlots,
+    parseDateISO: parseDateISO,
+    isWeekend: isWeekend,
+    isPastDay: isPastDay,
+    getBusinessDaysInMonth: getBusinessDaysInMonth,
+    getMonthLabel: getMonthLabel,
+    dayAvailability: dayAvailability,
+    canNavigateMonth: canNavigateMonth,
   };
 })(typeof window !== 'undefined' ? window : this);

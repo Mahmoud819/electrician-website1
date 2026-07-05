@@ -19,8 +19,8 @@
       },
     };
   </script>
+  <link rel="stylesheet" href="css/site.css" />
   <style>
-    body { font-family: Inter, system-ui, sans-serif; }
     .slot-admin { transition: all 0.15s; cursor: pointer; }
     .slot-admin.blocked { background: #fecaca; border-color: #f87171; }
     .slot-admin.open { background: #dcfce7; border-color: #4ade80; }
@@ -77,7 +77,7 @@
       <!-- Slot manager -->
       <section class="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
         <h2 class="font-bold text-lg mb-1">Block / Open Time Slots</h2>
-        <p class="text-sm text-slate-500 mb-4">Click a slot to toggle. <span class="text-green-600 font-semibold">Green = open</span>, <span class="text-red-600 font-semibold">Red = blocked</span>.</p>
+        <p class="text-sm text-slate-500 mb-4">Navigate by month, click a weekday, then toggle time slots. Green = open, red = blocked.</p>
         <div id="admin-calendar" class="space-y-4"></div>
       </section>
 
@@ -163,38 +163,113 @@
       updateBusyPreview(busySlider.value);
     });
 
-    function renderAdminCalendar() {
-      adminCalendar.innerHTML = '';
-      var days = IMCAvailability.nextBusinessDays(10);
-      var slots = IMCAvailability.generateTimeSlots();
-      days.forEach(function (day) {
-        var dateStr = IMCAvailability.formatDateISO(day);
-        var block = document.createElement('div');
-        block.className = 'border border-gray-200 rounded-xl p-4';
-        block.innerHTML = '<p class="font-semibold text-sm mb-3">' + IMCAvailability.formatDateDisplay(day) + '</p>';
-        var grid = document.createElement('div');
-        grid.className = 'flex flex-wrap gap-2';
-        slots.forEach(function (time) {
-          var key = IMCAvailability.slotKey(dateStr, time);
-          var blocked = !!workingData.blockedSlots[key];
-          var btn = document.createElement('button');
-          btn.type = 'button';
-          btn.textContent = time;
-          btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border ' + (blocked ? 'blocked' : 'open');
-          btn.addEventListener('click', function () {
-            if (workingData.blockedSlots[key]) {
-              delete workingData.blockedSlots[key];
-              btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border open';
-            } else {
-              workingData.blockedSlots[key] = true;
-              btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border blocked';
-            }
-          });
-          grid.appendChild(btn);
+    var workingData = IMCAvailability.load();
+    var adminViewYear = new Date().getFullYear();
+    var adminViewMonth = new Date().getMonth();
+    var adminSelectedDay = null;
+    var ADMIN_WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    function renderAdminTimeSlots(dateStr) {
+      var panel = document.getElementById('admin-slots-panel');
+      if (!panel) return;
+      panel.classList.remove('hidden');
+      var d = IMCAvailability.parseDateISO(dateStr);
+      panel.querySelector('.admin-slots-date').textContent =
+        d.toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' });
+      var grid = panel.querySelector('.admin-slots-grid');
+      grid.innerHTML = '';
+      IMCAvailability.generateTimeSlots().forEach(function (time) {
+        var key = IMCAvailability.slotKey(dateStr, time);
+        var blocked = !!workingData.blockedSlots[key];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = time;
+        btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border ' + (blocked ? 'blocked' : 'open');
+        btn.addEventListener('click', function () {
+          if (workingData.blockedSlots[key]) {
+            delete workingData.blockedSlots[key];
+            btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border open';
+          } else {
+            workingData.blockedSlots[key] = true;
+            btn.className = 'slot-admin px-3 py-1.5 text-xs rounded-lg border blocked';
+          }
         });
-        block.appendChild(grid);
-        adminCalendar.appendChild(block);
+        grid.appendChild(btn);
       });
+    }
+
+    function renderAdminCalendar() {
+      adminCalendar.innerHTML =
+        '<div class="cal-wrap">' +
+          '<div class="cal-header">' +
+            '<button type="button" class="cal-nav-btn" id="admin-cal-prev">‹</button>' +
+            '<span class="cal-month-label">' + IMCAvailability.getMonthLabel(adminViewYear, adminViewMonth) + '</span>' +
+            '<button type="button" class="cal-nav-btn" id="admin-cal-next">›</button>' +
+          '</div>' +
+          '<div class="cal-weekdays">' + ADMIN_WEEKDAYS.map(function (w) { return '<span class="cal-weekday">' + w + '</span>'; }).join('') + '</div>' +
+          '<div class="cal-grid" id="admin-cal-grid"></div>' +
+          '<div id="admin-slots-panel" class="cal-slots-panel hidden">' +
+            '<p class="text-sm font-semibold mb-1">Toggle slots for <span class="admin-slots-date"></span></p>' +
+            '<p class="text-xs text-slate-500 mb-3">Green = open · Red = blocked</p>' +
+            '<div class="admin-slots-grid flex flex-wrap gap-2"></div>' +
+          '</div>' +
+        '</div>';
+
+      var grid = document.getElementById('admin-cal-grid');
+      var first = new Date(adminViewYear, adminViewMonth, 1);
+      var daysInMonth = new Date(adminViewYear, adminViewMonth + 1, 0).getDate();
+      var startPad = (first.getDay() + 6) % 7;
+
+      for (var i = 0; i < startPad; i++) {
+        var empty = document.createElement('div');
+        empty.className = 'cal-day cal-day-empty';
+        grid.appendChild(empty);
+      }
+
+      for (var day = 1; day <= daysInMonth; day++) {
+        var date = new Date(adminViewYear, adminViewMonth, day);
+        var dateStr = IMCAvailability.formatDateISO(date);
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'cal-day';
+        var dayNum = document.createElement('span');
+        dayNum.textContent = day;
+        cell.appendChild(dayNum);
+
+        if (IMCAvailability.isWeekend(date)) {
+          cell.className += ' cal-day-weekend';
+          cell.disabled = true;
+        } else {
+          cell.className += ' cal-day-open';
+          if (adminSelectedDay === dateStr) cell.className += ' cal-day-selected';
+          (function (ds, el) {
+            el.addEventListener('click', function () {
+              adminSelectedDay = ds;
+              document.querySelectorAll('#admin-cal-grid .cal-day-selected').forEach(function (c) { c.classList.remove('cal-day-selected'); });
+              el.classList.add('cal-day-selected');
+              renderAdminTimeSlots(ds);
+            });
+          })(dateStr, cell);
+        }
+        grid.appendChild(cell);
+      }
+
+      document.getElementById('admin-cal-prev').addEventListener('click', function () {
+        if (!IMCAvailability.canNavigateMonth(adminViewYear, adminViewMonth, -1)) return;
+        adminViewMonth--;
+        if (adminViewMonth < 0) { adminViewMonth = 11; adminViewYear--; }
+        adminSelectedDay = null;
+        renderAdminCalendar();
+      });
+      document.getElementById('admin-cal-next').addEventListener('click', function () {
+        if (!IMCAvailability.canNavigateMonth(adminViewYear, adminViewMonth, 1)) return;
+        adminViewMonth++;
+        if (adminViewMonth > 11) { adminViewMonth = 0; adminViewYear++; }
+        adminSelectedDay = null;
+        renderAdminCalendar();
+      });
+
+      if (adminSelectedDay) renderAdminTimeSlots(adminSelectedDay);
     }
 
     function loadUI() {
